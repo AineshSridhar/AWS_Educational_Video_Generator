@@ -26,6 +26,8 @@ const STATUS_PHASES = [
   { id: "COMPLETED", label: "Complete", icon: "✅" },
 ];
 
+const API_BASE_URL = "http://localhost:8000";
+
 export function StatusPolling({
   jobId,
   onSuccess,
@@ -46,10 +48,12 @@ export function StatusPolling({
 
     const pollStatus = async () => {
       try {
-        const response = await fetch(`/api/status/${jobId}`);
+        const response = await fetch(`${API_BASE_URL}/status/${jobId}`);
+        console.log("Status API Response(status-polling.tsx):", response);
         if (!response.ok) throw new Error("Failed to fetch status");
 
         const data: JobStatus = await response.json();
+        console.log("Polled Job Status:(status-polling.tsx)", data);
         setStatus(data);
         setFailureCount(0);
 

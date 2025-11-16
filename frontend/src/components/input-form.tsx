@@ -90,13 +90,15 @@ export function InputForm({ onJobCreated }: InputFormProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ script, style: selectedStyle }),
       });
-
+      console.log("API Response:", response);
       if (!response.ok) {
         const data = await response.json();
+        console.log("API Error Response:", data);
         throw new Error(data.detail || "Failed to generate video");
       }
 
       const data = await response.json();
+      console.log("API Data:", data);
       onJobCreated(data.job_id, { script, style: selectedStyle });
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
