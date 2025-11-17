@@ -266,7 +266,7 @@ def generate_video_task(job_id: str, request: VideoRequest):
 
 # --- FASTAPI ENDPOINTS ---
 
-@app.post("/api/generate")
+@app.post("/generate")
 async def create_video_job(request: VideoRequest, background_tasks: BackgroundTasks):
     if not ai_client or not bedrock_runtime:
         raise HTTPException(status_code=503, detail="Service not configured: Missing GEMINI API Key or AWS Bedrock Access.")
@@ -281,7 +281,7 @@ async def create_video_job(request: VideoRequest, background_tasks: BackgroundTa
     background_tasks.add_task(generate_video_task, job_id, request)
     return {"job_id": job_id, "status": job_status[job_id]['status']}
 
-@app.get("/api/status/{job_id}")
+@app.get("/status/{job_id}")
 async def get_video_status(job_id: str):
     if job_id not in job_status:
         raise HTTPException(status_code=404, detail="Job ID not found")
