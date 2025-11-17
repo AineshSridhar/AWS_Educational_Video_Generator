@@ -8,6 +8,7 @@ import {
   PanelRightOpen,
   Plus,
   Search,
+  Trash2,
 } from "lucide-react";
 import { useChatHistory } from "@/contexts/chat-history-context";
 import { cn } from "@/lib/utils";
@@ -33,7 +34,8 @@ interface ChatSidebarProps {
 export function ChatSidebar({ className, onNavigate }: ChatSidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { sessions, activeSessionId, setActiveSession } = useChatHistory();
+  const { sessions, activeSessionId, setActiveSession, deleteSession } =
+    useChatHistory();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [search, setSearch] = useState("");
 
@@ -42,8 +44,9 @@ export function ChatSidebar({ className, onNavigate }: ChatSidebarProps) {
     return sessions.filter((session) => {
       if (!term) return true;
       return (
-        session.script.toLowerCase().includes(term) ||
-        session.style.toLowerCase().includes(term)
+        session.prompt.toLowerCase().includes(term) ||
+        session.model.toLowerCase().includes(term) ||
+        session.tool.toLowerCase().includes(term)
       );
     });
   }, [sessions, search]);
@@ -225,28 +228,45 @@ export function ChatSidebar({ className, onNavigate }: ChatSidebarProps) {
               </motion.p>
             ) : (
               filteredSessions.map((session) => (
-                <motion.button
-                  key={session.id}
-                  layout
-                  onClick={() => handleSessionSelect(session.id)}
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -10 }}
-                  whileHover={{ scale: 1.02 }}
-                  className={cn(
-                    "w-full rounded-xl border border-transparent px-3 py-3 text-left transition-colors overflow-hidden",
-                    isSessionActive(session.id)
-                      ? "bg-sidebar-primary/10 border-sidebar-primary text-sidebar-primary"
-                      : "hover:bg-sidebar-accent/40"
-                  )}
-                >
-                  <p className="truncate text-sm font-medium">
-                    {session.script}
-                  </p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {session.style} • {formatDate(session.createdAt)}
-                  </p>
-                </motion.button>
+                <div key={session.id} className="flex items-center gap-2">
+                  <motion.button
+                    layout
+                    onClick={() => handleSessionSelect(session.id)}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -10 }}
+                    whileHover={{ scale: 1.02 }}
+                    className={cn(
+                      "w-full rounded-xl border border-transparent px-3 py-3 text-left transition-colors overflow-hidden",
+                      isSessionActive(session.id)
+                        ? "bg-sidebar-primary/10 border-sidebar-primary text-sidebar-primary"
+                        : "hover:bg-sidebar-accent/40"
+                    )}
+                  >
+                    <p className="truncate text-sm font-medium">
+                      {session.prompt}
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {session.model} • {formatDate(session.createdAt)}
+                    </p>
+                  </motion.button>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      deleteSession(session.id);
+                      if (
+                        location.pathname.startsWith(`/session/${session.id}`)
+                      ) {
+                        navigate("/");
+                      }
+                    }}
+                    className="shrink-0 rounded-lg border border-sidebar-border/70 p-2 text-sidebar-foreground/70 transition hover:text-destructive hover:border-destructive"
+                    aria-label={`Delete session ${session.prompt}`}
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
+                </div>
               ))
             )}
           </motion.div>
