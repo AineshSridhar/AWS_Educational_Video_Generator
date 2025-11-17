@@ -8,13 +8,19 @@ export const MODEL_CONFIG: Record<ToolType, Record<string, string>> = {
     "aws-nova-reel": "/api/video/nova",
     "text-to-video-ms-1.7b": "/api/video/ali-vilab/text-to-video-ms-1.7b",
     "cerspense/zeroscope_v2_576w": "/api/video/cerspense/zeroscope_v2_576w",
-    "Lightricks/LTX-Video-0.9.7-dev": "/api/video/lightricks-ltx-video",
+    "Lightricks/LTX-Video-0.9.7-dev":
+      "/api/video/Lightricks/LTX-Video-0.9.7-dev",
     "camenduru/potat1": "/api/video/camenduru/potat1",
   },
   image: {
     "stabilityai/stable-diffusion-xl-base-1.0":
       "/api/image/stabilityai/stable-diffusion-xl-base-1.0",
-    "black-forest-labs/FLUX.1-dev": "/api/image/black-forest-labs/FLUX.1-dev",
+    "stable-diffusion-v1-5/stable-diffusion-v1-5":
+      "/api/image/stable-diffusion-v1-5/stable-diffusion-v1-5",
+    "Lykon/DreamShaper": "/api/image/Lykon/DreamShaper",
+    "CompVis/stable-diffusion-v1-4": "/api/image/CompVis/stable-diffusion-v1-4",
+    "dreamlike-art/dreamlike-photoreal-2.0":
+      "/api/image/dreamlike-art/dreamlike-photoreal-2.0",
   },
 };
 
