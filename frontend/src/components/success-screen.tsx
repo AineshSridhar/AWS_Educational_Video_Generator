@@ -47,7 +47,7 @@ export function SuccessScreen({
         transition={{ duration: 0.5, delay: 0.2 }}
       >
         <Card className="glass-card overflow-hidden">
-          <div className="aspect-video bg-gradient-to-br from-primary/10 to-accent/10 flex items-center justify-center">
+          <div className="aspect-video bg-linear-to-br from-primary/10 to-accent/10 flex items-center justify-center">
             <video
               src={videoUrl}
               controls

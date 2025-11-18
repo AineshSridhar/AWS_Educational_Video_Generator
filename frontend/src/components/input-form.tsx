@@ -155,7 +155,7 @@ export function InputForm({ onJobCreated }: InputFormProps) {
                   <span
                     className={cn(
                       "flex size-12 items-center justify-center rounded-xl text-primary",
-                      "bg-gradient-to-br from-primary/15 via-accent/10 to-transparent",
+                      "bg-linear-to-br from-primary/15 via-accent/10 to-transparent",
                       isActive && "from-primary/30 via-primary/10 to-accent/10"
                     )}
                   >

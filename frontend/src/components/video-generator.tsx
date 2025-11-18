@@ -5,7 +5,7 @@ import { AlertTriangle, Bot, Sparkles, UserRound } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { ChatPromptInput } from "@/components/chat-prompt-input";
 import { ModelDropdown } from "@/components/model-dropdown";
-import { StatusPolling } from "./status-polling";
+import { StatusPolling, type JobStatus } from "./status-polling";
 import { submitToolRequest } from "@/lib/api";
 import {
   TOOL_SETTINGS,
@@ -60,6 +60,21 @@ const extractImageUrls = (payload: unknown): string[] => {
     });
   }
   return Array.from(urls);
+};
+
+const getJobStringField = (
+  payload: unknown,
+  field: "status" | "progress"
+): string | undefined => {
+  if (
+    payload &&
+    typeof payload === "object" &&
+    field in payload &&
+    typeof (payload as Record<string, unknown>)[field] === "string"
+  ) {
+    return (payload as Record<string, string>)[field];
+  }
+  return undefined;
 };
 
 const PROMPT_BOOSTS: PromptBoost[] = [
@@ -256,66 +271,88 @@ export function VideoGenerator() {
           jobId: response.jobId,
         });
       } else {
-        const imageJobId = createId();
-        registerJob(sessionId, {
-          id: imageJobId,
-          tool: "image",
-          model: selectedModel,
-          createdAt: Date.now(),
-          status: "QUEUED",
-          progress: "Awaiting image pipeline",
-          history: [],
-        });
-        appendJobStatus(
-          sessionId,
-          imageJobId,
-          "QUEUED",
-          "Awaiting image pipeline"
-        );
-        appendJobStatus(
-          sessionId,
-          imageJobId,
-          "PROCESSING",
-          "Sending prompt to image model"
-        );
-        const imageUrls = extractImageUrls(response.data);
-        appendJobStatus(
-          sessionId,
-          imageJobId,
-          "COMPLETED",
-          imageUrls.length
-            ? `${imageUrls.length} asset(s) ready`
-            : "Response received"
-        );
-        updateJob(sessionId, imageJobId, {
-          status: "COMPLETED",
-          progress:
-            imageUrls.length > 0
-              ? `${imageUrls.length} asset(s) ready`
-              : "Response received",
-          imageUrls,
-        });
-        appendStatus(
-          sessionId,
-          `${new Date().toLocaleTimeString()} • Image job ${imageJobId} completed`
-        );
-        appendMessage(sessionId, {
-          id: createId(),
-          role: "assistant",
-          content:
-            imageUrls.length > 0
-              ? `Generated ${imageUrls.length} ${
-                  imageUrls.length > 1 ? "images" : "image"
-                } with ${selectedModel}.`
-              : `Response received from ${selectedModel}.`,
-          tool: activeTool,
-          model: selectedModel,
-          status: imageUrls.length ? "success" : "info",
-          timestamp: Date.now(),
-          imageUrls,
-          data: response.data,
-          jobId: imageJobId,
-        });
+        const remoteJobId = response.jobId;
+        if (remoteJobId) {
+          const initialStatus =
+            getJobStringField(response.data, "status") ?? "QUEUED";
+          const initialProgress =
+            getJobStringField(response.data, "progress") ??
+            "Awaiting image pipeline";
+          registerJob(sessionId, {
+            id: remoteJobId,
+            tool: "image",
+            model: selectedModel,
+            createdAt: Date.now(),
+            status: initialStatus,
+            progress: initialProgress,
+            history: [],
+          });
+          appendJobStatus(
+            sessionId,
+            remoteJobId,
+            initialStatus,
+            initialProgress
+          );
+          appendStatus(
+            sessionId,
+            `${new Date().toLocaleTimeString()} • Image job queued with ${selectedModel}`
+          );
+          updateSession(sessionId, { jobId: remoteJobId });
+          appendMessage(sessionId, {
+            id: createId(),
+            role: "assistant",
+            content: `Running ${selectedModel}. I will share image status updates here.`,
+            tool: activeTool,
+            model: selectedModel,
+            status: "info",
+            timestamp: Date.now(),
+            jobId: remoteJobId,
+          });
+          setActiveJobId(remoteJobId);
+          setActiveJobModel(selectedModel);
+          setActiveJobSessionId(sessionId);
+        } else {
+          const imageJobId = createId();
+          registerJob(sessionId, {
+            id: imageJobId,
+            tool: "image",
+            model: selectedModel,
+            createdAt: Date.now(),
+            status: "COMPLETED",
+            progress: "Response received",
+            history: [],
+          });
+          const imageUrls = extractImageUrls(response.data);
+          updateJob(sessionId, imageJobId, {
+            status: "COMPLETED",
+            progress:
+              imageUrls.length > 0
+                ? `${imageUrls.length} asset(s) ready`
+                : "Response received",
+            imageUrls,
+          });
+          appendStatus(
+            sessionId,
+            `${new Date().toLocaleTimeString()} • Image response received`
+          );
+          appendMessage(sessionId, {
+            id: createId(),
+            role: "assistant",
+            content:
+              imageUrls.length > 0
+                ? `Generated ${imageUrls.length} ${
+                    imageUrls.length > 1 ? "images" : "image"
+                  } with ${selectedModel}.`
+                : `Response received from ${selectedModel}.`,
+            tool: activeTool,
+            model: selectedModel,
+            status: imageUrls.length ? "success" : "info",
+            timestamp: Date.now(),
+            imageUrls,
+            data: response.data,
+            jobId: imageJobId,
+          });
+        }
       }
       setAttachedFiles([]);
       resetAttachmentInput();
@@ -338,37 +375,70 @@ export function VideoGenerator() {
   };
 
   const handleJobSuccess = (
-    videoUrl: string,
+    payload: JobStatus,
     sessionId: string | null,
     jobId: string | null
   ) => {
     if (!sessionId || !jobId) return;
     const session = sessions.find((item) => item.id === sessionId);
     const job = session?.jobs[jobId];
-    if (job?.status === "COMPLETED" && job.videoUrl) {
-      setActiveJobId(null);
-      setActiveJobSessionId(null);
-      return;
-    }
     setActiveJobId(null);
     setActiveJobSessionId(null);
-    updateJob(sessionId, jobId, {
-      status: "COMPLETED",
-      progress: "Video ready",
-      videoUrl,
-    });
-    appendJobStatus(sessionId, jobId, "COMPLETED", "Video ready");
-    appendMessage(sessionId, {
-      id: createId(),
-      role: "assistant",
-      content: "Your video is ready!",
-      status: "success",
-      timestamp: Date.now(),
-      videoUrl,
-      tool: "video",
-      model: activeJobModel ?? selectedModel,
-      jobId,
-    });
+    const baseUpdate = {
+      status: "COMPLETED" as const,
+      progress: payload.progress || "Assets ready",
+    };
+
+    if (payload.video_url) {
+      updateJob(sessionId, jobId, {
+        ...baseUpdate,
+        videoUrl: payload.video_url,
+      });
+      appendJobStatus(
+        sessionId,
+        jobId,
+        "COMPLETED",
+        payload.progress || "Video ready"
+      );
+      appendMessage(sessionId, {
+        id: createId(),
+        role: "assistant",
+        content: "Your video is ready!",
+        status: "success",
+        timestamp: Date.now(),
+        videoUrl: payload.video_url,
+        tool: job?.tool ?? "video",
+        model: job?.model ?? activeJobModel ?? selectedModel,
+        jobId,
+      });
+      return;
+    }
+
+    if (payload.image_urls && payload.image_urls.length > 0) {
+      updateJob(sessionId, jobId, {
+        ...baseUpdate,
+        imageUrls: payload.image_urls,
+      });
+      appendJobStatus(
+        sessionId,
+        jobId,
+        "COMPLETED",
+        payload.progress || "Images ready"
+      );
+      appendMessage(sessionId, {
+        id: createId(),
+        role: "assistant",
+        content: `Generated ${payload.image_urls.length} ${
+          payload.image_urls.length > 1 ? "images" : "image"
+        } with ${job?.model ?? selectedModel}.`,
+        status: "success",
+        timestamp: Date.now(),
+        imageUrls: payload.image_urls,
+        tool: job?.tool ?? "image",
+        model: job?.model ?? selectedModel,
+        jobId,
+      });
+    }
   };
 
   const handleJobError = (
@@ -377,6 +447,8 @@ export function VideoGenerator() {
     jobId: string | null
   ) => {
     if (!sessionId || !jobId) return;
+    const session = sessions.find((item) => item.id === sessionId);
+    const job = session?.jobs[jobId];
     setActiveJobId(null);
     setActiveJobSessionId(null);
     updateJob(sessionId, jobId, {
@@ -390,8 +462,8 @@ export function VideoGenerator() {
       content: message,
       status: "error",
       timestamp: Date.now(),
-      tool: "video",
-      model: activeJobModel ?? selectedModel,
+      tool: job?.tool ?? "video",
+      model: job?.model ?? activeJobModel ?? selectedModel,
       jobId,
     });
     setGlobalError(message);
@@ -463,8 +535,9 @@ export function VideoGenerator() {
                   <StatusPolling
                     jobId={activeJobId}
                     sessionId={activeJobSessionId}
-                    onSuccess={(videoUrl, jobId) =>
-                      handleJobSuccess(videoUrl, activeJobSessionId, jobId)
+                    tool={activeTool}
+                    onSuccess={(payload, jobId) =>
+                      handleJobSuccess(payload, activeJobSessionId, jobId)
                     }
                     onError={(message, jobId) =>
                       handleJobError(message, activeJobSessionId, jobId)

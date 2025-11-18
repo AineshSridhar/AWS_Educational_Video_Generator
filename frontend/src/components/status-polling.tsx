@@ -4,19 +4,22 @@ import { Card } from "@/components/ui/card";
 import { StatusTimeline } from "./status-timeline";
 import { SkeletonLoader } from "./skeleton-loader";
 import { useChatHistory } from "@/contexts/chat-history-context";
-import { API_ENDPOINTS } from "@/lib/model-config";
+import { API_ENDPOINTS, type ToolType } from "@/lib/model-config";
 
 interface StatusPollingProps {
   jobId: string;
   sessionId: string;
-  onSuccess: (videoUrl: string, jobId: string) => void;
+  tool: ToolType;
+  onSuccess: (payload: JobStatus, jobId: string) => void;
   onError: (error: string, jobId: string) => void;
 }
 
-interface JobStatus {
+export interface JobStatus {
   status: string;
   progress: string;
   video_url: string | null;
+  image_urls?: string[] | null;
+  variations?: { id: string; url: string }[] | null;
 }
 
 const STATUS_PHASES = [
@@ -31,6 +34,7 @@ const STATUS_PHASES = [
 export function StatusPolling({
   jobId,
   sessionId,
+  tool,
   onSuccess,
   onError,
 }: StatusPollingProps) {
@@ -51,11 +55,9 @@ export function StatusPolling({
     const pollStatus = async () => {
       try {
         const response = await fetch(API_ENDPOINTS.status(jobId));
-        console.log("Status API Response(status-polling.tsx):", response);
         if (!response.ok) throw new Error("Failed to fetch status");
 
         const data: JobStatus = await response.json();
-        console.log("Polled Job Status:(status-polling.tsx)", data);
         setStatus(data);
         setFailureCount(0);
 
@@ -85,14 +87,18 @@ export function StatusPolling({
               status: data.status,
               progress: data.progress,
             });
-            setIsPolling(false);
-            onSuccess(data.video_url, jobId);
-          } else {
-            onError("Video generation completed but no URL provided", jobId);
-            setIsPolling(false);
           }
+          if (data.image_urls) {
+            updateJob(sessionId, jobId, {
+              imageUrls: data.image_urls,
+              status: data.status,
+              progress: data.progress,
+            });
+          }
+          setIsPolling(false);
+          onSuccess(data, jobId);
         } else if (data.status === "FAILED") {
-          const failureMessage = data.progress || "Video generation failed";
+          const failureMessage = data.progress || "Generation failed";
           updateJob(sessionId, jobId, {
             status: "FAILED",
             progress: failureMessage,
@@ -105,18 +111,12 @@ export function StatusPolling({
           setIsPolling(false);
         }
       } catch (err) {
+        const message = err instanceof Error ? err.message : "Network error";
         appendStatus(
           sessionId,
-          `${new Date().toLocaleTimeString()} • RETRYING — ${
-            err instanceof Error ? err.message : "Network error"
-          }`
+          `${new Date().toLocaleTimeString()} • RETRYING — ${message}`
         );
-        appendJobStatus(
-          sessionId,
-          jobId,
-          "RETRYING",
-          err instanceof Error ? err.message : "Network error"
-        );
+        appendJobStatus(sessionId, jobId, "RETRYING", message);
         const nextFailures = failureCount + 1;
         setFailureCount(nextFailures);
         if (nextFailures > 10) {
@@ -126,7 +126,7 @@ export function StatusPolling({
       }
     };
 
-    const interval = setInterval(pollStatus, 3000);
+    const interval = setInterval(pollStatus, 5000);
     pollStatus();
 
     return () => clearInterval(interval);
@@ -138,6 +138,9 @@ export function StatusPolling({
     onError,
     appendStatus,
     updateSession,
+    appendJobStatus,
+    updateJob,
+    sessionId,
   ]);
 
   if (!status) {
@@ -150,7 +153,6 @@ export function StatusPolling({
 
   return (
     <div className="space-y-6">
-      appendJobStatus, updateJob,
       {/* Main Status Card */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -161,7 +163,9 @@ export function StatusPolling({
           <div className="space-y-6">
             {/* Header */}
             <div>
-              <h2 className="text-2xl font-semibold mb-2">Video Generation</h2>
+              <h2 className="text-2xl font-semibold mb-2">
+                {tool === "video" ? "Video" : "Image"} Generation
+              </h2>
               <p className="text-muted-foreground">{status.progress}</p>
             </div>
 
@@ -198,6 +202,7 @@ export function StatusPolling({
           </div>
         </Card>
       </motion.div>
+
       {/* Details */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}

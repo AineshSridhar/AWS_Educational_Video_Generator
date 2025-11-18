@@ -53,13 +53,15 @@ async def _extract_form_payload(request: Request) -> tuple[Dict[str, str], List[
     return text_fields, files
 
 
-def _create_video_job(payload: JobPayload) -> str:
+def _create_job(payload: JobPayload) -> str:
     job_id = str(uuid.uuid4())
     jobs[job_id] = {
         "step": 0,
         "status": STATUS_FLOW[0][0],
         "progress": STATUS_FLOW[0][1],
         "video_url": None,
+        "image_urls": None,
+        "variations": None,
         "prompt": payload.get("prompt", ""),
         "model": payload.get("model"),
         "tool": payload.get("tool", "video"),
@@ -77,7 +79,25 @@ def _advance_job(job: JobPayload) -> JobPayload:
         job["step"] = step
         job["status"], job["progress"] = STATUS_FLOW[step]
         if STATUS_FLOW[step][0] == "COMPLETED":
-            job["video_url"] = MOCK_VIDEO_URL
+            if job["tool"] == "video":
+                job["video_url"] = MOCK_VIDEO_URL
+            else:
+                base_url = random.choice(IMAGE_PLACEHOLDERS)
+                variation_seed = uuid.uuid4().hex[:6]
+                job["image_urls"] = [
+                    f"{base_url}?auto=format&seed={variation_seed}&frame=0",
+                    f"{base_url}?auto=format&seed={variation_seed}&frame=1",
+                ]
+                job["variations"] = [
+                    {
+                        "id": f"{variation_seed}-a",
+                        "url": f"{base_url}?auto=format&fit=crop&w=1024&var=a",
+                    },
+                    {
+                        "id": f"{variation_seed}-b",
+                        "url": f"{base_url}?auto=format&fit=crop&w=1024&var=b",
+                    },
+                ]
     return job
 
 
@@ -125,7 +145,7 @@ async def enqueue_video(model_slug: str, request: Request):
     }
     attachments = _attachment_meta(uploads)
 
-    job_id = _create_video_job(
+    job_id = _create_job(
         {
             "prompt": prompt,
             "model": model,
@@ -160,28 +180,25 @@ async def generate_image(model_slug: str, request: Request):
     }
     attachments = _attachment_meta(uploads)
 
-    # Use random placeholder to mimic multiple returns
-    image_url = random.choice(IMAGE_PLACEHOLDERS)
-    variation_seed = uuid.uuid4().hex[:6]
+    job_id = _create_job(
+        {
+            "prompt": prompt,
+            "model": model,
+            "tool": tool,
+            "attachments": attachments,
+            "metadata": metadata,
+        }
+    )
 
     return {
-        "status": "COMPLETED",
+        "job_id": job_id,
+        "status": jobs[job_id]["status"],
+        "progress": jobs[job_id]["progress"],
         "prompt": prompt,
         "model": model,
         "tool": tool,
-        "metadata": metadata,
         "attachments": attachments,
-        "image_url": f"{image_url}?auto=format&seed={variation_seed}",
-        "variations": [
-            {
-                "id": f"{variation_seed}-a",
-                "url": f"{image_url}?auto=format&fit=crop&w=1024&var=a",
-            },
-            {
-                "id": f"{variation_seed}-b",
-                "url": f"{image_url}?auto=format&fit=crop&w=1024&var=b",
-            },
-        ],
+        "metadata": metadata,
     }
 
 
@@ -195,7 +212,9 @@ async def get_video_status(job_id: str):
     return {
         "status": job["status"],
         "progress": job["progress"],
-        "video_url": job["video_url"],
+        "video_url": job.get("video_url"),
+        "image_urls": job.get("image_urls"),
+        "variations": job.get("variations"),
         "prompt": job["prompt"],
         "model": job["model"],
         "tool": job["tool"],
