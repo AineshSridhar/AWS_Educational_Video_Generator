@@ -1,32 +1,30 @@
-"""Lightweight mock FastAPI server for front-end testing.
+"""Comprehensive mock FastAPI server for local front-end testing.
 
-This module mirrors the interface defined in `main.py` but returns
-predictable, dummy data so the React client can be exercised without
-valid AWS or Gemini credentials.
+The production system exposes multiple tool endpoints (video, image, etc.).
+This mock server re-creates those routes so the React client can be fully
+exercised on a laptop without AWS, OpenAI, or Google credentials.
 """
 
 from __future__ import annotations
 
 import itertools
+import random
 import uuid
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-
-# --- Shared schema with the production server ---------------------------------
-
-class VideoRequest(BaseModel):
-    script: str
-    style: str
 
 # --- Mock data lifecycle ------------------------------------------------------
 
 MOCK_VIDEO_URL = (
-    # "https://storage.googleapis.com/coverr-main/mp4/Mt_Baker.mp4"
     "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
 )
+IMAGE_PLACEHOLDERS = [
+    "https://images.unsplash.com/photo-1472214103451-9374bd1c798e",
+    "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee",
+    "https://images.unsplash.com/photo-1500534314209-a25ddb2bd429",
+]
 STATUS_FLOW: List[Tuple[str, str]] = [
     ("QUEUED", "Awaiting generation..."),
     ("ANALYZING_SCRIPT", "Parsing script and splitting into scenes."),
@@ -36,20 +34,40 @@ STATUS_FLOW: List[Tuple[str, str]] = [
     ("COMPLETED", "Assembly complete. 3/3 clips successful."),
 ]
 
-job_counter = itertools.count(1)
-JobPayload = Dict[str, object]
+JobPayload = Dict[str, Any]
 jobs: Dict[str, JobPayload] = {}
+job_counter = itertools.count(1)
 
 
-def _create_job(payload: VideoRequest) -> str:
+async def _extract_form_payload(request: Request) -> tuple[Dict[str, str], List[UploadFile]]:
+    """Split incoming multipart form data into text fields and files."""
+
+    form = await request.form()
+    text_fields: Dict[str, str] = {}
+    files: List[UploadFile] = []
+    for key, value in form.multi_items():
+        if isinstance(value, UploadFile):
+            files.append(value)
+        else:
+            text_fields[key] = value
+    return text_fields, files
+
+
+def _create_job(payload: JobPayload) -> str:
     job_id = str(uuid.uuid4())
     jobs[job_id] = {
         "step": 0,
         "status": STATUS_FLOW[0][0],
         "progress": STATUS_FLOW[0][1],
         "video_url": None,
-        "request": payload.dict(),
-        "human_id": next(job_counter),
+        "image_urls": None,
+        "variations": None,
+        "prompt": payload.get("prompt", ""),
+        "model": payload.get("model"),
+        "tool": payload.get("tool", "video"),
+        "attachments": payload.get("attachments", []),
+        "metadata": payload.get("metadata", {}),
+        "job_number": next(job_counter),
     }
     return job_id
 
@@ -61,13 +79,42 @@ def _advance_job(job: JobPayload) -> JobPayload:
         job["step"] = step
         job["status"], job["progress"] = STATUS_FLOW[step]
         if STATUS_FLOW[step][0] == "COMPLETED":
-            job["video_url"] = MOCK_VIDEO_URL
+            if job["tool"] == "video":
+                job["video_url"] = MOCK_VIDEO_URL
+            else:
+                base_url = random.choice(IMAGE_PLACEHOLDERS)
+                variation_seed = uuid.uuid4().hex[:6]
+                job["image_urls"] = [
+                    f"{base_url}?auto=format&seed={variation_seed}&frame=0",
+                    f"{base_url}?auto=format&seed={variation_seed}&frame=1",
+                ]
+                job["variations"] = [
+                    {
+                        "id": f"{variation_seed}-a",
+                        "url": f"{base_url}?auto=format&fit=crop&w=1024&var=a",
+                    },
+                    {
+                        "id": f"{variation_seed}-b",
+                        "url": f"{base_url}?auto=format&fit=crop&w=1024&var=b",
+                    },
+                ]
     return job
+
+
+def _attachment_meta(files: List[UploadFile]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "name": upload.filename,
+            "content_type": upload.content_type,
+        }
+        for upload in files
+        if upload.filename
+    ]
 
 
 # --- FastAPI setup ------------------------------------------------------------
 
-app = FastAPI(title="Mock AWS Educational Video Generator")
+app = FastAPI(title="Mock GPT Workflow Server")
 origins = [
     "http://localhost",
     "http://localhost:5173",
@@ -76,7 +123,7 @@ origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -85,10 +132,74 @@ app.add_middleware(
 
 # --- Routes -------------------------------------------------------------------
 
-@app.post("/generate")
-async def create_video_job(request: VideoRequest):
-    job_id = _create_job(request)
-    return {"job_id": job_id, "status": jobs[job_id]["status"]}
+@app.post("/api/video/{model_slug}")
+async def enqueue_video(model_slug: str, request: Request):
+    text_fields, uploads = await _extract_form_payload(request)
+    prompt = text_fields.get("prompt", "")
+    tool = text_fields.get("tool", "video")
+    model = text_fields.get("model", model_slug)
+    metadata = {
+        key: value
+        for key, value in text_fields.items()
+        if key not in {"prompt", "tool", "model"}
+    }
+    attachments = _attachment_meta(uploads)
+
+    job_id = _create_job(
+        {
+            "prompt": prompt,
+            "model": model,
+            "tool": tool,
+            "attachments": attachments,
+            "metadata": metadata,
+        }
+    )
+
+    return {
+        "job_id": job_id,
+        "status": jobs[job_id]["status"],
+        "progress": jobs[job_id]["progress"],
+        "prompt": prompt,
+        "model": model,
+        "tool": tool,
+        "attachments": attachments,
+        "metadata": metadata,
+    }
+
+
+@app.post("/api/image/{model_slug}")
+async def generate_image(model_slug: str, request: Request):
+    text_fields, uploads = await _extract_form_payload(request)
+    prompt = text_fields.get("prompt", "")
+    tool = text_fields.get("tool", "image")
+    model = text_fields.get("model", model_slug)
+    metadata = {
+        key: value
+        for key, value in text_fields.items()
+        if key not in {"prompt", "tool", "model"}
+    }
+    attachments = _attachment_meta(uploads)
+
+    job_id = _create_job(
+        {
+            "prompt": prompt,
+            "model": model,
+            "tool": tool,
+            "attachments": attachments,
+            "metadata": metadata,
+        }
+    )
+
+    return {
+        "job_id": job_id,
+        "status": jobs[job_id]["status"],
+        "progress": jobs[job_id]["progress"],
+        "prompt": prompt,
+        "model": model,
+        "tool": tool,
+        "attachments": attachments,
+        "metadata": metadata,
+    }
 
 
 @app.get("/status/{job_id}")
@@ -101,9 +212,20 @@ async def get_video_status(job_id: str):
     return {
         "status": job["status"],
         "progress": job["progress"],
-        "video_url": job["video_url"],
-        "request": job["request"],
+        "video_url": job.get("video_url"),
+        "image_urls": job.get("image_urls"),
+        "variations": job.get("variations"),
+        "prompt": job["prompt"],
+        "model": job["model"],
+        "tool": job["tool"],
+        "attachments": job["attachments"],
+        "metadata": job["metadata"],
     }
+
+
+@app.get("/health")
+async def healthcheck():
+    return {"ok": True, "jobs": len(jobs)}
 
 
 # --- Local entry point --------------------------------------------------------

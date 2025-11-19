@@ -8,6 +8,7 @@ import {
   useChatHistory,
   type ChatSession,
 } from "@/contexts/chat-history-context";
+import { TOOL_SETTINGS } from "@/lib/model-config";
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 6;
@@ -27,25 +28,25 @@ export function DownloadsPage() {
   );
 
   const [search, setSearch] = useState("");
-  const [styleFilter, setStyleFilter] = useState("all");
+  const [toolFilter, setToolFilter] = useState("all");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [visible, setVisible] = useState(PAGE_SIZE);
 
-  const styles = Array.from(new Set(sessions.map((session) => session.style)));
+  const tools = Array.from(new Set(sessions.map((session) => session.tool)));
 
   const filteredSessions = useMemo(() => {
     const term = search.trim().toLowerCase();
     return completedSessions.filter((session) => {
-      if (styleFilter !== "all" && session.style !== styleFilter) return false;
-      if (term && !session.script.toLowerCase().includes(term)) return false;
+      if (toolFilter !== "all" && session.tool !== toolFilter) return false;
+      if (term && !session.prompt.toLowerCase().includes(term)) return false;
       if (startDate && session.createdAt < new Date(startDate).getTime())
         return false;
       if (endDate && session.createdAt > new Date(endDate).getTime())
         return false;
       return true;
     });
-  }, [completedSessions, search, styleFilter, startDate, endDate]);
+  }, [completedSessions, search, toolFilter, startDate, endDate]);
 
   const visibleSessions = filteredSessions.slice(0, visible);
 
@@ -88,32 +89,32 @@ export function DownloadsPage() {
                   setSearch(event.target.value);
                   setVisible(PAGE_SIZE);
                 }}
-                placeholder="Search scripts"
+                placeholder="Search prompts"
                 className={cn(inputBaseClass, "pl-11")}
               />
             </div>
           </label>
 
-          {/* STYLE */}
+          {/* TOOL */}
           <label className="flex flex-col gap-2 text-sm">
             <span className="block text-xs uppercase tracking-[0.35em] text-muted-foreground">
-              Style
+              Tool
             </span>
             <select
-              value={styleFilter}
+              value={toolFilter}
               onChange={(event) => {
-                setStyleFilter(event.target.value);
+                setToolFilter(event.target.value);
                 setVisible(PAGE_SIZE);
               }}
               className={cn(
                 inputBaseClass,
-                "appearance-none pr-10 bg-gradient-to-r from-background/80 to-background/60"
+                "appearance-none pr-10 bg-linear-to-r from-background/80 to-background/60"
               )}
             >
-              <option value="all">All styles</option>
-              {styles.map((style) => (
-                <option key={style} value={style}>
-                  {style}
+              <option value="all">All tools</option>
+              {tools.map((tool) => (
+                <option key={tool} value={tool}>
+                  {TOOL_SETTINGS[tool]?.label ?? tool}
                 </option>
               ))}
             </select>
@@ -133,7 +134,7 @@ export function DownloadsPage() {
               }}
               className={cn(
                 inputBaseClass,
-                "[color-scheme:dark]",
+                "scheme-dark",
                 "placeholder:text-muted-foreground"
               )}
             />
@@ -153,7 +154,7 @@ export function DownloadsPage() {
               }}
               className={cn(
                 inputBaseClass,
-                "[color-scheme:dark]",
+                "scheme-dark",
                 "placeholder:text-muted-foreground"
               )}
             />
@@ -186,7 +187,7 @@ export function DownloadsPage() {
                 transition={{ delay: index * 0.05 }}
               >
                 <Card className="glass-card flex h-full flex-col overflow-hidden">
-                  <div className="relative aspect-video w-full overflow-hidden bg-gradient-to-br from-primary/30 to-accent/40">
+                  <div className="relative aspect-video w-full overflow-hidden bg-linear-to-br from-primary/30 to-accent/40">
                     {session.videoUrl ? (
                       <video
                         src={session.videoUrl}
@@ -203,11 +204,16 @@ export function DownloadsPage() {
                     )}
                   </div>
                   <div className="flex flex-1 flex-col gap-3 px-6 py-4">
-                    <span className="inline-flex w-fit items-center rounded-full border border-border/60 bg-background/80 px-3 py-1 text-xs uppercase tracking-wide text-muted-foreground">
-                      {session.style}
-                    </span>
+                    <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                      <span className="inline-flex w-fit items-center rounded-full border border-border/60 bg-background/80 px-3 py-1 uppercase tracking-wide">
+                        {TOOL_SETTINGS[session.tool]?.label ?? session.tool}
+                      </span>
+                      <span className="inline-flex w-fit items-center rounded-full border border-border/60 bg-background/40 px-3 py-1 uppercase tracking-wide">
+                        {session.model}
+                      </span>
+                    </div>
                     <h3 className="text-lg font-semibold line-clamp-3">
-                      {session.script}
+                      {session.prompt}
                     </h3>
                     <p className="text-xs text-muted-foreground">
                       Generated {formatDate(session.createdAt)}

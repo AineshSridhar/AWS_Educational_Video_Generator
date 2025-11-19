@@ -4,17 +4,22 @@ import { Card } from "@/components/ui/card";
 import { StatusTimeline } from "./status-timeline";
 import { SkeletonLoader } from "./skeleton-loader";
 import { useChatHistory } from "@/contexts/chat-history-context";
+import { API_ENDPOINTS, type ToolType } from "@/lib/model-config";
 
 interface StatusPollingProps {
   jobId: string;
-  onSuccess: (videoUrl: string) => void;
-  onError: (error: string) => void;
+  sessionId: string;
+  tool: ToolType;
+  onSuccess: (payload: JobStatus, jobId: string) => void;
+  onError: (error: string, jobId: string) => void;
 }
 
-interface JobStatus {
+export interface JobStatus {
   status: string;
   progress: string;
   video_url: string | null;
+  image_urls?: string[] | null;
+  variations?: { id: string; url: string }[] | null;
 }
 
 const STATUS_PHASES = [
@@ -26,17 +31,18 @@ const STATUS_PHASES = [
   { id: "COMPLETED", label: "Complete", icon: "✅" },
 ];
 
-const API_BASE_URL = "http://localhost:8000";
-
 export function StatusPolling({
   jobId,
+  sessionId,
+  tool,
   onSuccess,
   onError,
 }: StatusPollingProps) {
   const [status, setStatus] = useState<JobStatus | null>(null);
   const [isPolling, setIsPolling] = useState(true);
   const [failureCount, setFailureCount] = useState(0);
-  const { appendStatus, updateSession } = useChatHistory();
+  const { appendStatus, updateSession, appendJobStatus, updateJob } =
+    useChatHistory();
   const lastStatusRef = useRef<string>("");
 
   useEffect(() => {
@@ -48,20 +54,24 @@ export function StatusPolling({
 
     const pollStatus = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/status/${jobId}`);
-        console.log("Status API Response(status-polling.tsx):", response);
+        const response = await fetch(API_ENDPOINTS.status(jobId));
         if (!response.ok) throw new Error("Failed to fetch status");
 
         const data: JobStatus = await response.json();
-        console.log("Polled Job Status:(status-polling.tsx)", data);
         setStatus(data);
         setFailureCount(0);
+
+        appendJobStatus(sessionId, jobId, data.status, data.progress);
+        updateJob(sessionId, jobId, {
+          status: data.status,
+          progress: data.progress,
+        });
 
         const readableStatus = data.status.replace(/_/g, " ");
         const statusKey = `${data.status}-${data.progress}`;
         if (statusKey !== lastStatusRef.current) {
           appendStatus(
-            jobId,
+            sessionId,
             `${new Date().toLocaleTimeString()} • ${readableStatus} — ${
               data.progress || ""
             }`
@@ -71,39 +81,52 @@ export function StatusPolling({
 
         if (data.status === "COMPLETED") {
           if (data.video_url) {
-            updateSession(jobId, { videoUrl: data.video_url });
-            setIsPolling(false);
-            onSuccess(data.video_url);
-          } else {
-            onError("Video generation completed but no URL provided");
-            setIsPolling(false);
+            updateSession(sessionId, { videoUrl: data.video_url });
+            updateJob(sessionId, jobId, {
+              videoUrl: data.video_url,
+              status: data.status,
+              progress: data.progress,
+            });
           }
+          if (data.image_urls) {
+            updateJob(sessionId, jobId, {
+              imageUrls: data.image_urls,
+              status: data.status,
+              progress: data.progress,
+            });
+          }
+          setIsPolling(false);
+          onSuccess(data, jobId);
         } else if (data.status === "FAILED") {
-          const failureMessage = data.progress || "Video generation failed";
-          onError(failureMessage);
+          const failureMessage = data.progress || "Generation failed";
+          updateJob(sessionId, jobId, {
+            status: "FAILED",
+            progress: failureMessage,
+          });
+          onError(failureMessage, jobId);
           appendStatus(
-            jobId,
+            sessionId,
             `${new Date().toLocaleTimeString()} • FAILED — ${failureMessage}`
           );
           setIsPolling(false);
         }
       } catch (err) {
+        const message = err instanceof Error ? err.message : "Network error";
         appendStatus(
-          jobId,
-          `${new Date().toLocaleTimeString()} • RETRYING — ${
-            err instanceof Error ? err.message : "Network error"
-          }`
+          sessionId,
+          `${new Date().toLocaleTimeString()} • RETRYING — ${message}`
         );
+        appendJobStatus(sessionId, jobId, "RETRYING", message);
         const nextFailures = failureCount + 1;
         setFailureCount(nextFailures);
         if (nextFailures > 10) {
-          onError("Connection lost. Please try again.");
+          onError("Connection lost. Please try again.", jobId);
           setIsPolling(false);
         }
       }
     };
 
-    const interval = setInterval(pollStatus, 3000);
+    const interval = setInterval(pollStatus, 5000);
     pollStatus();
 
     return () => clearInterval(interval);
@@ -115,6 +138,9 @@ export function StatusPolling({
     onError,
     appendStatus,
     updateSession,
+    appendJobStatus,
+    updateJob,
+    sessionId,
   ]);
 
   if (!status) {
@@ -137,7 +163,9 @@ export function StatusPolling({
           <div className="space-y-6">
             {/* Header */}
             <div>
-              <h2 className="text-2xl font-semibold mb-2">Video Generation</h2>
+              <h2 className="text-2xl font-semibold mb-2">
+                {tool === "video" ? "Video" : "Image"} Generation
+              </h2>
               <p className="text-muted-foreground">{status.progress}</p>
             </div>
 
@@ -167,7 +195,7 @@ export function StatusPolling({
                     }%`,
                   }}
                   transition={{ duration: 0.8, ease: "easeInOut" }}
-                  className="h-full bg-gradient-to-r from-primary via-accent to-secondary"
+                  className="h-full bg-linear-to-r from-primary via-accent to-secondary"
                 />
               </div>
             </div>

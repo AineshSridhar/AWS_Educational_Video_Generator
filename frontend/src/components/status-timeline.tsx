@@ -63,7 +63,7 @@ export function StatusTimeline({
                   animate={{ height: isCompleted || isActive ? 40 : 40 }}
                   className={`w-1 mt-2 ${
                     isCompleted || isActive
-                      ? "bg-gradient-to-b from-primary to-primary/20"
+                      ? "bg-linear-to-b from-primary to-primary/20"
                       : "bg-border"
                   }`}
                 />
